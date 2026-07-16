@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Arkhas
+Comment=Divisor de pantalla con atajo global
+Exec=/bin/bash -c "cd $HOME/arkhas && python3 main.py --hidden > /tmp/arkhas.log 2>&1"
+X-GNOME-Autostart-enabled=true
+NoDisplay=true
+Terminal=false
