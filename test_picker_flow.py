@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""Prueba manual del flujo completo: elegis 2 ventanas seguidas.
-La segunda lista ya excluye la que elegiste primero.
-Uso: python3 test_picker_flow.py
-"""
+# Ejercita el picker dos veces seguidas fuera del flujo del atajo, para
+# verificar en aislamiento que la 2da lista excluye la ventana elegida en
+# la 1ra sin tener que pasar por hotkey.py.
 from theme import apply_theme
 from picker import WindowPicker
 

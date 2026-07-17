@@ -18,10 +18,11 @@ LOCK_PATH = os.path.join(CONFIG_DIR, "arkhas.lock")
 
 
 def _acquire_lock():
-    """Devuelve (archivo_de_lock, None) si se pudo tomar el lock (somos la
-    unica instancia), o (None, pid_de_la_otra_instancia) si ya hay una
-    corriendo. Hay que mantener una referencia al archivo devuelto mientras
-    dure el programa, para no perder el lock."""
+    # flock en vez de un chequeo manual de PID: es atomico (no hay ventana
+    # de carrera entre "leer si existe" y "escribir el propio pid" como
+    # habria con un archivo simple), y el kernel libera el lock solo si el
+    # proceso muere de cualquier forma (incluido un crash o un kill -9), sin
+    # dejar un lockfile "fantasma" que haya que limpiar a mano.
     os.makedirs(CONFIG_DIR, exist_ok=True)
     lock_file = open(LOCK_PATH, "a+")
     try:
@@ -38,12 +39,19 @@ def _acquire_lock():
     lock_file.truncate()
     lock_file.write(str(os.getpid()))
     lock_file.flush()
+    # se devuelve el file object (no solo True/False): hay que mantener una
+    # referencia viva mientras el proceso corra, porque el lock se suelta
+    # si el descriptor se cierra o se recolecta
     return lock_file, None
 
 
 def main():
     lock_file, existing_pid = _acquire_lock()
     if lock_file is None:
+        # ya hay una instancia con el atajo agarrado: en vez de competir
+        # por el mismo grab de X11 (que fallaria para esta segunda
+        # instancia), se le pide a la que ya esta corriendo que se muestre,
+        # y este proceso termina sin crear ventana propia
         print(f"Arkhas: ya hay una instancia corriendo (pid={existing_pid}).", flush=True)
         if existing_pid:
             try:
@@ -61,34 +69,40 @@ def main():
     win = ArkhasWindow()
     print("Arkhas: ventana creada", flush=True)
 
-    # Le damos un startup-id legitimo antes de mostrarla: sin esto, Marco
-    # puede tratar una ventana lanzada sin contexto de sesion grafica normal
-    # (sin terminal, via nohup/setsid/systemd) como sospechosa.
+    # Marco puede tratar como sospechosa una ventana mapeada sin contexto de
+    # sesion grafica normal (lanzada por autostart/systemd/nohup, sin que
+    # ningun click de usuario la haya originado) y pedirle que se cierre
+    # poco despues de aparecer. Darle un startup-id evita ese trato.
     win.set_startup_id(f"arkhas-{os.getpid()}_TIME{GLib.get_monotonic_time()}")
 
-    # Cerrar la ventana (X) la oculta en vez de destruirla: el atajo sigue
-    # activo en segundo plano aunque no se vea la ventana.
     def _on_delete_event(*_):
+        # Sin este handler, GTK destruye la ventana por default ante
+        # cualquier pedido de cierre (el del usuario haciendo click en la
+        # X, o uno que llegue del gestor de ventanas). Se oculta en vez de
+        # destruir: el proceso y el atajo global siguen vivos, y volver a
+        # correr "python3 main.py" la vuelve a mostrar via _show_window.
         print("Arkhas: delete-event recibido -> ocultando ventana (el atajo sigue activo)", flush=True)
         win.hide()
         return True
 
     win.connect("delete-event", _on_delete_event)
 
-    # Si otra instancia nos manda SIGUSR1 (porque el usuario corrio
-    # "python3 main.py" de nuevo mientras ya estabamos corriendo), mostramos
-    # la ventana en vez de tener dos instancias peleando por el mismo atajo.
     def _show_window():
         print("Arkhas: pedido de mostrar ventana recibido", flush=True)
         win.show_all()
         win.present()
-        return False  # no repetir (GLib.idle_add one-shot)
+        return False  # False = no reprogramar (GLib.idle_add es one-shot con esto)
 
+    # SIGUSR1 llega de _acquire_lock() de OTRO proceso (ver arriba). El
+    # handler de señal de Python corre en un punto arbitrario del hilo
+    # principal, no es seguro llamar GTK ahi directo: se agenda con
+    # GLib.idle_add para que corra dentro del loop de eventos.
     signal.signal(signal.SIGUSR1, lambda signum, frame: GLib.idle_add(_show_window))
 
-    # Usamos GLib.MainLoop directo, no Gtk.main()/Gtk.main_quit(): el wrapper
-    # especial de señales que trae gi.overrides.Gtk.main() se porta mal en
-    # procesos sin terminal interactiva (nohup, setsid, systemd, etc).
+    # GLib.MainLoop directo en vez de Gtk.main()/Gtk.main_quit(): el
+    # wrapper de manejo de señales que trae gi.overrides.Gtk.main() da
+    # problemas en procesos sin terminal interactiva (nohup, setsid,
+    # systemd) — el loop puede terminar solo sin que nada lo haya pedido.
     loop = GLib.MainLoop()
 
     def _on_destroy(*_):
@@ -97,6 +111,8 @@ def main():
 
     win.connect("destroy", _on_destroy)
 
+    # --hidden es lo que usa el .desktop de autostart: arranca el atajo
+    # sin mostrar la ventana de configuracion en cada inicio de sesion.
     hidden = "--hidden" in sys.argv
     if hidden:
         print("Arkhas: arrancando oculto (--hidden), el atajo queda activo igual", flush=True)

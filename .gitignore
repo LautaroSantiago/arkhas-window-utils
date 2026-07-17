@@ -4,3 +4,5 @@ __pycache__/
 .venv/
 venv/
 *.log
+*.deb
+packaging/debian/usr/share/arkhas/*.py

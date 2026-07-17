@@ -3,7 +3,14 @@ import gi
 gi.require_version("Gtk", "3.0")
 from gi.repository import Gtk, Gdk
 
-# Misma gama de verdes que usa el rofi de window-switcher (#11261E base)
+# Paleta calcada del tema de rofi que ya usaba el usuario para el switcher
+# de ventanas (window-switcher.rasi), asi Arkhas se ve consistente con el
+# resto de su entorno: #11261E de fondo, #3ea86b de acento.
+#
+# Un CssProvider en GTK3 aplica reglas a TODOS los widgets del proceso que
+# coincidan con los selectores, sin importar en que ventana esten - por eso
+# alcanza con cargarlo una vez (apply_theme, llamado desde main.py) para que
+# tambien se vea correcto en las ventanas del picker, creadas mas tarde.
 CSS = b"""
 window {
     background-color: #11261E;
@@ -47,6 +54,9 @@ scale slider {
     border-radius: 50%;
 }
 
+/* Borde del picker: al ser una ventana POPUP (sin decoracion del gestor
+   de ventanas), este borde es lo unico que la separa visualmente del
+   fondo de la pantalla. */
 .arkhas-picker {
     border: 2px solid #3ea86b;
     border-radius: 6px;
@@ -78,12 +88,25 @@ row:selected label {
     font-size: 16px;
     font-weight: bold;
 }
+
+.arkhas-pill {
+    background-color: #1c3a2c;
+    color: #d7f5df;
+    border: 1px solid #3ea86b;
+    border-radius: 12px;
+    padding: 4px 12px;
+    font-size: 12px;
+    font-weight: bold;
+}
 """
 
 
 def apply_theme():
     provider = Gtk.CssProvider()
     provider.load_from_data(CSS)
+    # STYLE_PROVIDER_PRIORITY_APPLICATION asegura que estas reglas pisen el
+    # tema GTK del sistema (que si no, ganaria por especificidad en varios
+    # de estos selectores genericos como "button" o "row").
     Gtk.StyleContext.add_provider_for_screen(
         Gdk.Screen.get_default(),
         provider,

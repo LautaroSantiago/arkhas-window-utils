@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
-"""Prueba manual del flujo completo: elegis 2 ventanas y las divide en
-pantalla usando el porcentaje guardado en la configuracion.
-Esc en la 2da seleccion -> la 1ra pasa a ocupar 50%.
-Uso: python3 test_placer_flow.py
-"""
+# Ejercita el flujo completo (picker + placer) fuera del atajo global, para
+# poder reproducir y depurar el posicionamiento sin tener que armar/disparar
+# un atajo de teclado en cada prueba.
 from theme import apply_theme
 from picker import WindowPicker
 from placer import place_left, place_right

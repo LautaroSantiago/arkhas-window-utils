@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Arkhas
+Comment=Divisor de pantalla con atajo global
+Exec=arkhas --hidden
+X-GNOME-Autostart-enabled=true
+NoDisplay=true
+Terminal=false

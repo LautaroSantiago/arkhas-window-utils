@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Arkhas
+Comment=Divisor de pantalla con atajo global
+Exec=arkhas
+Terminal=false
+Categories=Utility;

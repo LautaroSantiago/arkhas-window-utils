@@ -8,6 +8,10 @@ from hotkey import HotkeyListener
 from picker import WindowPicker
 from placer import place_left, place_right
 
+# Keyvals que Gdk reporta cuando se suelta SOLO la tecla modificadora (sin
+# ninguna tecla principal todavia encima). Se ignoran durante la captura de
+# atajo para no guardar, por ejemplo, "Control" solo como si fuera el atajo
+# completo.
 MODIFIER_KEYNAMES = (
     "Shift_L", "Shift_R",
     "Control_L", "Control_R",
@@ -31,7 +35,6 @@ class ArkhasWindow(Gtk.Window):
         root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=20)
         self.add(root)
 
-        # --- Atajo de teclado ---
         hotkey_label = Gtk.Label(label="Atajo para activar la división")
         hotkey_label.set_xalign(0)
         root.pack_start(hotkey_label, False, False, 0)
@@ -40,11 +43,13 @@ class ArkhasWindow(Gtk.Window):
         self.hotkey_button.connect("clicked", self.on_hotkey_button_clicked)
         root.pack_start(self.hotkey_button, False, False, 0)
 
-        # --- Slider de porcentaje (un solo control -> siempre suma 100) ---
         split_label = Gtk.Label(label="División por defecto (izquierda / derecha)")
         split_label.set_xalign(0)
         root.pack_start(split_label, False, False, 0)
 
+        # Un solo control (10-90) en vez de dos campos separados: el
+        # porcentaje de la derecha se deriva como 100 menos el valor del
+        # slider, asi es imposible guardar una combinacion que no sume 100.
         self.split_scale = Gtk.Scale.new_with_range(
             Gtk.Orientation.HORIZONTAL, 10, 90, 5
         )
@@ -56,7 +61,6 @@ class ArkhasWindow(Gtk.Window):
         self.split_readout = Gtk.Label(label=self._split_display())
         root.pack_start(self.split_readout, False, False, 0)
 
-        # --- Guardar ---
         save_button = Gtk.Button(label="Guardar")
         save_button.connect("clicked", self.on_save_clicked)
         root.pack_start(save_button, False, False, 0)
@@ -67,9 +71,9 @@ class ArkhasWindow(Gtk.Window):
         self.connect("key-press-event", self.on_key_press)
         self.connect("destroy", lambda *_: self.hotkey_listener.stop())
 
+        # arranca el atajo apenas se crea la ventana (no hace falta que el
+        # usuario toque Guardar si ya habia una configuracion previa)
         self._start_listener_if_configured()
-
-    # ---------- helpers de texto ----------
 
     def _hotkey_display(self):
         hk = self.config.get("hotkey")
@@ -88,12 +92,15 @@ class ArkhasWindow(Gtk.Window):
         right = 100 - left
         return f"{left}%  |  {right}%"
 
-    # ---------- callbacks ----------
-
     def on_split_changed(self, scale):
         self.split_readout.set_text(self._split_display())
 
     def on_hotkey_button_clicked(self, button):
+        # esto NO arma el grab global todavia; solo pone la ventana en modo
+        # "esperando tecla" para que on_key_press la capture como evento
+        # normal de GTK. El grab global de verdad (via X11, funcionando
+        # aunque esta ventana no tenga el foco) lo arma hotkey.py recien
+        # cuando se guarda.
         self.listening_for_key = True
         button.set_label("Presioná la combinación de teclas...")
 
@@ -103,7 +110,6 @@ class ArkhasWindow(Gtk.Window):
 
         keyname = Gdk.keyval_name(event.keyval)
 
-        # Si soltó solo el modificador (sin tecla principal), seguimos esperando
         if keyname in MODIFIER_KEYNAMES:
             return True
 
@@ -128,9 +134,10 @@ class ArkhasWindow(Gtk.Window):
         save_config(self.config)
         self._start_listener_if_configured(save_status=True)
 
-    # ---------- atajo global ----------
-
     def _start_listener_if_configured(self, save_status=False):
+        # HotkeyListener.start() suelta el grab anterior antes de armar el
+        # nuevo (ver hotkey.py), asi que llamar esto de nuevo tras cambiar
+        # el atajo en la UI aplica el cambio sin reiniciar el proceso.
         hk = self.config.get("hotkey")
         print(f"Arkhas: config hotkey={hk}", flush=True)
         if not hk:
@@ -146,6 +153,8 @@ class ArkhasWindow(Gtk.Window):
             self.status_label.set_text(f"No pude activar el atajo: {e}")
 
     def on_hotkey_triggered(self):
+        # Este metodo lo invoca hotkey.py via GLib.idle_add, asi que corre
+        # en el hilo principal de GTK y puede abrir dialogos sin problema.
         print("Arkhas: atajo disparado", flush=True)
         percent = self.config.get("split_percent", 50)
 
@@ -155,9 +164,12 @@ class ArkhasWindow(Gtk.Window):
             return
         place_left(xid1, percent)
 
+        # la 1ra ventana ya elegida se excluye de la 2da lista por xid
         xid2 = WindowPicker(exclude_xids={xid1}).run_and_get_xid()
         print(f"Arkhas: 2da seleccion xid={xid2}", flush=True)
         if xid2 is None:
+            # Esc en la 2da seleccion: la 1ra pasa a ocupar media pantalla
+            # en vez de quedar con el ancho parcial pensado para dos
             place_left(xid1, 50)
         else:
             place_right(xid2, percent)

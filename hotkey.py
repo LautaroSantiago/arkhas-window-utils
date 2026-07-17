@@ -14,21 +14,21 @@ MODIFIER_MASKS = {
     "Shift": Xlib.X.ShiftMask,
 }
 
-# Combinaciones de Caps Lock / Num Lock a ignorar, para que el atajo
-# funcione sin importar si estan activados.
+# XGrabKey no ignora Caps Lock / Num Lock automaticamente: un grab pedido
+# con una mascara de modificadores especifica solo dispara si el estado del
+# teclado coincide EXACTO, incluyendo esos bits de bloqueo. Por eso hay que
+# pedir el mismo grab una vez por cada combinacion posible de esos dos bits
+# (ninguno activado, solo Caps, solo Num, ambos) para que el atajo funcione
+# sin importar en que estado esten.
 _IGNORED_LOCKS = (0, Xlib.X.LockMask, Xlib.X.Mod2Mask, Xlib.X.LockMask | Xlib.X.Mod2Mask)
 _LOCK_BITS = Xlib.X.LockMask | Xlib.X.Mod2Mask
 
 
 class HotkeyListener:
-    """Escucha un atajo global (funciona aunque la app no tenga el foco).
-
-    Uso:
-        listener = HotkeyListener(on_trigger=mi_funcion)
-        listener.start({"keysym": "F14", "modifiers": ["Super"]})
-        ...
-        listener.stop()
-    """
+    """Atajo global via XGrabKey directo sobre la ventana raiz, en vez de
+    depender de la configuracion de atajos de un escritorio en particular
+    (MATE, GNOME, etc). Al agarrar la tecla a nivel de la raiz, el evento
+    llega aunque ninguna ventana de la app tenga el foco."""
 
     def __init__(self, on_trigger=None):
         self.on_trigger = on_trigger
@@ -40,7 +40,10 @@ class HotkeyListener:
         self._modmask = None
 
     def start(self, hotkey):
-        """hotkey: {"keysym": "F14", "modifiers": ["Super", ...]}"""
+        # stop() primero: si ya habia un grab activo con otra combinacion,
+        # hay que soltarlo antes de pedir uno nuevo (start() se usa tanto
+        # para el arranque inicial como para aplicar un atajo reconfigurado
+        # desde la UI sin reiniciar el proceso).
         self.stop()
 
         if not hotkey or not hotkey.get("keysym"):
@@ -50,6 +53,9 @@ class HotkeyListener:
         if keysym == 0:
             raise ValueError(f"No reconozco la tecla: {hotkey['keysym']!r}")
 
+        # Conexion X11 propia y separada de la que usa GTK/GDK para la
+        # interfaz: el grab y el loop de eventos corren en su propio hilo,
+        # sin competir con el loop principal de la app.
         self._display = Xlib.display.Display()
         self._root = self._display.screen().root
         self._keycode = self._display.keysym_to_keycode(keysym)
@@ -82,6 +88,8 @@ class HotkeyListener:
                     self._root.ungrab_key(self._keycode, self._modmask | lock, self._root)
                 self._display.sync()
             except Exception:
+                # la conexion puede estar en un estado invalido si el
+                # servidor X ya la cerro; no hay nada mas que hacer con ella
                 pass
             try:
                 self._display.close()
@@ -90,24 +98,33 @@ class HotkeyListener:
             self._display = None
 
     def _listen_loop(self):
+        # Poll en vez de bloquear en next_event(): un next_event() bloqueado
+        # no se puede interrumpir de forma limpia desde otro hilo cuando
+        # stop() cierra la conexion. El intervalo de 50ms es indetectable
+        # para un atajo de teclado pero permite revisar self._running
+        # seguido y salir del hilo sin quedar colgado.
         while self._running:
             try:
                 while self._display.pending_events() > 0:
                     event = self._display.next_event()
                     if event.type != Xlib.X.KeyPress:
                         continue
+                    # se descartan los bits de Caps/Num Lock al comparar,
+                    # ya que el grab se pidio para las 4 combinaciones pero
+                    # el evento en si trae el estado real del teclado
                     pressed_mod = event.state & ~_LOCK_BITS
                     if event.detail == self._keycode and pressed_mod == self._modmask:
                         if self.on_trigger:
+                            # el callback puede abrir dialogos GTK, que no
+                            # son thread-safe: se despacha al hilo principal
+                            # via GLib.idle_add en vez de llamarlo directo
                             GLib.idle_add(self.on_trigger)
             except Exception:
-                # la conexion se pudo haber cerrado desde stop(); cortamos
                 break
             time.sleep(0.05)
 
 
 if __name__ == "__main__":
-    # Prueba aislada: usa el atajo ya guardado desde la interfaz (ui.py / main.py)
     from config import load_config
 
     cfg = load_config()

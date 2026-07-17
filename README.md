@@ -10,7 +10,7 @@ Arkhas no es un gestor de ventanas ni reemplaza al que ya usás: es un disparado
 ![License](https://img.shields.io/badge/license-MIT-yellow)
 ![Status](https://img.shields.io/badge/status-en%20desarrollo-orange)
 
-> **Proyecto en desarrollo activo.** Todavía está en proceso de prueba y revisión — la posición de las ventanas, en particular, puede fallar con algunas combinaciones de aplicaciones mientras se sigue afinando. Todavía no hay paquete `.deb` ni ícono de bandeja. Usalo sabiendo que puede cambiar de un commit a otro.
+> **Proyecto en desarrollo activo.** Todavía está en proceso de prueba y revisión — la posición de las ventanas, en particular, puede fallar con algunas combinaciones de aplicaciones mientras se sigue afinando. Todavía no hay ícono de bandeja. Usalo sabiendo que puede cambiar de un commit a otro.
 
 ## Funcionalidades
 
@@ -33,12 +33,24 @@ Arkhas no es un gestor de ventanas ni reemplaza al que ya usás: es un disparado
 
 ## Instalación
 
-### Opción A — Paquete `.deb` (próximamente)
+### Opción A — Paquete `.deb` (recomendado)
 
-Todavía no hay paquete `.deb` publicado. Cuando esté disponible, se va a instalar con:
+Descargá el `.deb` desde [Releases](../../releases) e instalalo:
 
 ```bash
 sudo apt install ./arkhas_1.0.0_all.deb
+```
+
+Esto instala el binario (`arkhas`), el lanzador de menú, el arranque automático a nivel sistema (`/etc/xdg/autostart/`), y resuelve las dependencias de Python/GTK automáticamente. Para desinstalar:
+
+```bash
+sudo apt remove arkhas
+```
+
+Para reconstruir el `.deb` desde el código fuente:
+
+```bash
+bash build_deb.sh
 ```
 
 ### Opción B — Desde el código fuente
@@ -59,6 +71,8 @@ python3 main.py
 5. Apretá el atajo en cualquier momento: aparece la lista de ventanas abiertas, elegís la primera (va a la izquierda), aparece de nuevo la lista sin esa ventana, elegís la segunda (va a la derecha). Esc en la segunda selección deja la primera al 50%.
 
 ### Arranque automático al iniciar sesión
+
+Si instalaste el `.deb`, esto ya está resuelto (autostart a nivel sistema). Si corrés desde el código fuente:
 
 ```bash
 mkdir -p ~/.config/autostart
@@ -86,7 +100,9 @@ arkhas/
 ├── placer.py                  # Cálculo de geometría y posicionamiento de ventanas
 ├── test_picker_flow.py        # Prueba manual: encadena 2 selecciones del picker
 ├── test_placer_flow.py        # Prueba manual: flujo completo de selección + posicionamiento
-├── arkhas-autostart.desktop   # Entrada XDG para arranque automático
+├── arkhas-autostart.desktop   # Entrada XDG para arranque automático (instalación desde código fuente)
+├── build_deb.sh                # Genera arkhas_<version>_all.deb a partir del código actual
+├── packaging/debian/           # Estructura del paquete Debian (control, .desktop, autostart)
 └── README.md
 ```
 
@@ -100,8 +116,7 @@ arkhas/
 
 ## Limitaciones conocidas
 
-- No hay ícono en bandeja todavía: la única forma de abrir la ventana de configuración es correr `python3 main.py` de nuevo (te trae la instancia existente al frente).
-- Sin el paquete `.deb`, la instalación de dependencias y el autostart hay que hacerlos a mano.
+- No hay ícono en bandeja todavía: la única forma de abrir la ventana de configuración es correr `arkhas` (o `python3 main.py` desde el código fuente) de nuevo — te trae la instancia existente al frente.
 - Un atajo global por vez.
 
 ## Solución de problemas

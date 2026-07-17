@@ -1,0 +1,19 @@
+Package: arkhas
+Version: 1.0.0
+Section: utils
+Priority: optional
+Installed-Size: 108
+Architecture: all
+Depends: python3, python3-gi, gir1.2-gtk-3.0, gir1.2-wnck-3.0, python3-xlib
+Maintainer: Lautaro Subeldia <LautaroSantiago@users.noreply.github.com>
+Homepage: https://github.com/LautaroSantiago/arkhas
+Description: Divisor de pantalla activado por atajo global
+ Arkhas permite dividir la pantalla entre dos ventanas eligiendolas
+ desde un selector propio en GTK3, activado mediante un atajo de
+ teclado global configurable via XGrabKey (no depende de la
+ configuracion de atajos de ningun escritorio en particular).
+ .
+ Compensa automaticamente el margen invisible de las aplicaciones con
+ decoracion del lado del cliente (Brave, Thorium, y en general
+ cualquier app GTK3/Chromium moderna) para que las dos ventanas queden
+ pegadas sin hueco ni superposicion.

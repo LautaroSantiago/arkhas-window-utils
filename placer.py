@@ -13,6 +13,9 @@ import Xlib.X
 _GTK_FRAME_EXTENTS_ATOM = "_GTK_FRAME_EXTENTS"
 _DEBUG = os.environ.get("ARKHAS_DEBUG") == "1"
 
+# Conexion X11 propia (separada de la de GDK y de la de hotkey.py) para
+# leer propiedades de ventanas y del root directo del servidor, sin pasar
+# por wmctrl ni por el cache de Wnck.
 _xlib_display = None
 
 
@@ -24,10 +27,14 @@ def _get_xlib_display():
 
 
 def _get_frame_extents(xid):
-    """(left, right, top, bottom) del margen invisible que reservan las apps
-    con decoracion del lado del cliente (Brave, Thorium, etc). Marco NO lo
-    compensa solo (lo confirmamos con datos), asi que lo hacemos nosotros.
-    Si la ventana no define esa propiedad, devuelve (0,0,0,0)."""
+    # Las apps con decoracion del lado del cliente (GTK3/Chromium: Brave,
+    # Thorium, etc.) dibujan ellas mismas su sombra y borde de resize
+    # DENTRO de su propia ventana X, y le avisan al gestor de ventanas
+    # cuanto margen de esa ventana es en realidad invisible via esta
+    # propiedad. Sin tenerla en cuenta, pedirle a la ventana que ocupe
+    # exactamente el rectangulo deseado deja ese margen como hueco visible
+    # en el borde. Si la ventana no define la propiedad (apps sin CSD),
+    # se devuelve (0,0,0,0) y el resto del calculo queda sin efecto.
     try:
         display = _get_xlib_display()
         window = display.create_resource_object("window", xid)
@@ -42,10 +49,13 @@ def _get_frame_extents(xid):
 
 
 def _get_actual_geometry(xid):
-    """Geometria REAL actual de la ventana (x,y absolutos respecto a la
-    raiz, mas ancho/alto), leida directo del servidor X. No usamos
-    Wnck.Window.get_geometry() para esto porque devuelve valores poco
-    confiables/desactualizados en este contexto."""
+    # Wnck.Window.get_geometry() devolvia valores desactualizados/poco
+    # confiables al verificar el resultado de un resize reciente, asi que
+    # la geometria real se lee directo del protocolo X: get_geometry() da
+    # ancho/alto, y translate_coords traduce la esquina superior izquierda
+    # de la ventana a coordenadas absolutas de la raiz (necesario porque,
+    # segun el estado de reparenting, las coordenadas de get_geometry()
+    # pueden ser relativas a un padre que no es la raiz).
     display = _get_xlib_display()
     window = display.create_resource_object("window", xid)
     geom = window.get_geometry()
@@ -55,8 +65,10 @@ def _get_actual_geometry(xid):
 
 
 def get_workarea():
-    """(x, y, width, height) del area de trabajo del escritorio activo,
-    excluye paneles. Lee _NET_WORKAREA / _NET_CURRENT_DESKTOP directo."""
+    # _NET_WORKAREA trae un rectangulo (x,y,w,h) por cada escritorio
+    # virtual, en orden; hay que saber cual es el activo (_NET_CURRENT_DESKTOP)
+    # para tomar el que corresponde. Se lee directo del root en vez de
+    # invocar wmctrl como subproceso.
     display = _get_xlib_display()
     root = display.screen().root
 
@@ -74,20 +86,17 @@ def get_workarea():
 
 
 def place_window(xid, x, y, width, height):
-    """Mueve/redimensiona la ventana xid para que su contenido VISIBLE quede
-    en (x, y, width, height).
-
-    En vez de calcular la compensacion una sola vez y confiar en que salga
-    bien, medimos el resultado real despues de cada pedido y corregimos el
-    error observado, hasta 3 intentos. Esto porque el comportamiento real
-    (Marco + la propia app) no sigue una formula fija y predecible."""
     screen = Wnck.Screen.get_default()
-    screen.force_update()  # sin esto, xids recien creados pueden no aparecer
+    # mismo motivo que en picker.py: sin refrescar el cache de Wnck, una
+    # ventana recien seleccionada puede no resolverse todavia con Window.get()
+    screen.force_update()
 
     window = Wnck.Window.get(xid)
     if window is None:
         raise RuntimeError(f"No encontre la ventana con xid {xid}")
 
+    # una ventana maximizada ignora los pedidos de resize hasta que se le
+    # saca ese estado
     window.unmaximize()
     time.sleep(0.05)
 
@@ -95,6 +104,10 @@ def place_window(xid, x, y, width, height):
 
     def _apply(rx, ry, rw, rh):
         window.set_geometry(
+            # CURRENT (gravedad 0): se le pide al gestor de ventanas que
+            # posicione el rectangulo pedido usando la gravedad que la
+            # propia ventana declara (o NorthWest si no declara ninguna),
+            # en vez de forzar una gravedad especifica nuestra.
             Wnck.WindowGravity.CURRENT,
             (
                 Wnck.WindowMoveResizeMask.X
@@ -105,14 +118,22 @@ def place_window(xid, x, y, width, height):
             rx, ry, rw, rh,
         )
 
-    # Primer pedido: compensamos con el margen declarado por la ventana.
+    # Primer pedido: el rectangulo objetivo, agrandado por el margen
+    # invisible declarado (asi el contenido VISIBLE, no la ventana entera,
+    # cae en (x, y, width, height)).
     request = (x - left, y - top, width + left + right, height + top + bottom)
 
+    # El resultado de pedir una geometria no sigue una formula fija y
+    # predecible (depende de como Marco y la propia app interpreten el
+    # pedido, y varia entre aplicaciones): en vez de confiar en el calculo
+    # de arriba, se mide la posicion real resultante, se compara contra el
+    # objetivo, y se corrige el pedido con el error observado. Convergencia
+    # en 1 intento si todo sale como se espera, hasta 3 si no.
     for attempt in range(3):
         _apply(*request)
         time.sleep(0.3)
 
-        raw = _get_actual_geometry(xid)  # geometria cruda real de la ventana X
+        raw = _get_actual_geometry(xid)
         visible = (raw[0] + left, raw[1] + top, raw[2] - left - right, raw[3] - top - bottom)
         error = (x - visible[0], y - visible[1], width - visible[2], height - visible[3])
 
@@ -135,21 +156,21 @@ def place_window(xid, x, y, width, height):
 
 
 def place_left(xid, percent):
-    """Ubica xid pegada a la izquierda, ocupando `percent`% del area de trabajo."""
     x, y, w, h = get_workarea()
     left_w = w * percent // 100
     place_window(xid, x, y, left_w, h)
 
 
 def place_right(xid, left_percent):
-    """Ubica xid pegada a la derecha, ocupando el resto (100 - left_percent)%."""
+    # el ancho de la izquierda se recalcula igual que en place_left en vez
+    # de recibirlo como parametro, para que ambas llamadas puedan hacerse
+    # de forma independiente sin tener que pasarse estado entre si
     x, y, w, h = get_workarea()
     left_w = w * left_percent // 100
     place_window(xid, x + left_w, y, w - left_w, h)
 
 
 if __name__ == "__main__":
-    # Prueba aislada: python3 placer.py <xid_izquierda> <xid_derecha>
     if len(sys.argv) != 3:
         print("Uso: python3 placer.py <xid_izquierda> <xid_derecha>")
         print("Sacá los xid con: python3 picker.py")
