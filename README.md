@@ -38,7 +38,7 @@ Arkhas no es un gestor de ventanas ni reemplaza al que ya usás: es un disparado
 Descargá el `.deb` desde [Releases](../../releases) e instalalo:
 
 ```bash
-sudo apt install ./arkhas_1.0.0_all.deb
+sudo apt install ./arkhas_1.1.0_all.deb
 ```
 
 Esto instala el binario (`arkhas`), el lanzador de menú, el arranque automático a nivel sistema (`/etc/xdg/autostart/`), y resuelve las dependencias de Python/GTK automáticamente. Para desinstalar:

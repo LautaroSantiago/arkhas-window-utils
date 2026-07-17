@@ -58,6 +58,7 @@ scale slider {
    de ventanas), este borde es lo unico que la separa visualmente del
    fondo de la pantalla. */
 .arkhas-picker {
+    background-color: rgba(17, 38, 30, 0.80);
     border: 2px solid #3ea86b;
     border-radius: 6px;
 }

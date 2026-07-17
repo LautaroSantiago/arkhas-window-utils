@@ -24,8 +24,17 @@ def _get_candidate_windows(exclude_xids):
     exclude_xids = exclude_xids or set()
     own_pid = os.getpid()
 
+    # get_windows_stacked() devuelve las ventanas en orden de apilamiento,
+    # de mas atras a mas adelante. La ultima de la lista es la que esta
+    # mas arriba (la que tuvo el foco mas recientemente), asi que se
+    # invierte para que la lista quede ordenada "mas reciente primero" -
+    # mismo criterio que usa un Alt+Tab, sin necesidad de que Arkhas lleve
+    # su propio historial de foco.
+    stacked = list(screen.get_windows_stacked())
+    stacked.reverse()
+
     windows = []
-    for w in screen.get_windows():
+    for w in stacked:
         # exclude_xids identifica ventanas por xid puntual, no por clase de
         # aplicacion: permite elegir dos instancias del mismo navegador sin
         # que la segunda seleccion vuelva a ofrecer la que ya se eligio.
@@ -41,6 +50,30 @@ def _get_candidate_windows(exclude_xids):
             continue
         windows.append(w)
     return windows
+
+
+def pick_window(exclude_xids=None):
+    """Resuelve una seleccion de ventana, sin abrir el picker si no hace
+    falta elegir entre nada:
+
+    - 0 ventanas candidatas: devuelve None (no hay nada para elegir; el
+      llamador decide que hacer, tipicamente no hacer nada o caer al
+      porcentaje configurado).
+    - 1 sola candidata: se elige y activa automaticamente, sin mostrar
+      el picker (elegir entre una sola opcion no aporta nada).
+    - 2 o mas candidatas: se muestra el picker normal.
+
+    Sirve tanto para la 1ra seleccion (exclude_xids=None) como para la
+    2da (exclude_xids={xid de la 1ra}).
+    """
+    windows = _get_candidate_windows(exclude_xids)
+    if not windows:
+        return None
+    if len(windows) == 1:
+        window = windows[0]
+        window.activate(Gtk.get_current_event_time())
+        return window.get_xid()
+    return WindowPicker(exclude_xids=exclude_xids).run_and_get_xid()
 
 
 class WindowPicker(Gtk.Window):
@@ -65,15 +98,28 @@ class WindowPicker(Gtk.Window):
         self.set_position(Gtk.WindowPosition.CENTER_ALWAYS)
         self.get_style_context().add_class("arkhas-picker")
 
+        # Sin visual RGBA, el canal alfa del CSS se ignora y la ventana se
+        # pinta solida igual. Solo tiene efecto si hay un compositor
+        # corriendo (is_composited); sin uno, forzar el visual puede
+        # renderizar mal, asi que se deja el visual por defecto en ese caso.
+        screen = self.get_screen()
+        if screen.is_composited():
+            rgba_visual = screen.get_rgba_visual()
+            if rgba_visual is not None:
+                self.set_visual(rgba_visual)
+
         self._result = None
         self._seat = None
         self.listbox = None
+        self._windows = []
+        self._position_pill = None
 
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         outer.set_border_width(14)
         self.add(outer)
 
         windows = _get_candidate_windows(exclude_xids)
+        self._windows = windows
 
         header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         outer.pack_start(header, False, False, 0)
@@ -82,11 +128,11 @@ class WindowPicker(Gtk.Window):
         esc_pill.get_style_context().add_class("arkhas-pill")
         header.pack_start(esc_pill, False, False, 0)
 
-        count_pill = Gtk.Label(label=f"Ventanas: {len(windows)}")
-        count_pill.get_style_context().add_class("arkhas-pill")
-        header.pack_end(count_pill, False, False, 0)
-
         if windows:
+            self._position_pill = Gtk.Label(label=f"Ventana 1 de {len(windows)}")
+            self._position_pill.get_style_context().add_class("arkhas-pill")
+            header.pack_end(self._position_pill, False, False, 0)
+
             scroller = Gtk.ScrolledWindow()
             scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
             outer.pack_start(scroller, True, True, 8)
@@ -98,6 +144,11 @@ class WindowPicker(Gtk.Window):
             # ni confirmar aparte).
             self.listbox.set_activate_on_single_click(True)
             self.listbox.connect("row-activated", self._on_row_activated)
+            # row-selected cubre tanto el cambio por flechas como el
+            # preseleccionado inicial y el que ocurre justo antes de la
+            # activacion por click, asi la pastilla "Ventana X de N" queda
+            # sincronizada sin importar como se movio la seleccion.
+            self.listbox.connect("row-selected", self._on_row_selected)
             scroller.add(self.listbox)
 
             for w in windows:
@@ -176,6 +227,11 @@ class WindowPicker(Gtk.Window):
             self._move_selection(-1)
             return True
         return False
+
+    def _on_row_selected(self, listbox, row):
+        if row is None or self._position_pill is None:
+            return
+        self._position_pill.set_text(f"Ventana {row.get_index() + 1} de {len(self._windows)}")
 
     def _move_selection(self, delta):
         row = self.listbox.get_selected_row()

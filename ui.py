@@ -5,7 +5,7 @@ from gi.repository import Gtk, Gdk
 
 from config import load_config, save_config
 from hotkey import HotkeyListener
-from picker import WindowPicker
+from picker import pick_window
 from placer import place_left, place_right
 
 # Keyvals que Gdk reporta cuando se suelta SOLO la tecla modificadora (sin
@@ -158,18 +158,20 @@ class ArkhasWindow(Gtk.Window):
         print("Arkhas: atajo disparado", flush=True)
         percent = self.config.get("split_percent", 50)
 
-        xid1 = WindowPicker().run_and_get_xid()
+        # pick_window no abre ningun dialogo si hay 0 ventanas (no hace
+        # nada) o 1 sola (la toma directo); solo con 2 o mas candidatas
+        # muestra el picker.
+        xid1 = pick_window()
         print(f"Arkhas: 1ra seleccion xid={xid1}", flush=True)
         if xid1 is None:
             return
         place_left(xid1, percent)
 
-        # la 1ra ventana ya elegida se excluye de la 2da lista por xid
-        xid2 = WindowPicker(exclude_xids={xid1}).run_and_get_xid()
+        xid2 = pick_window({xid1})
         print(f"Arkhas: 2da seleccion xid={xid2}", flush=True)
         if xid2 is None:
-            # Esc en la 2da seleccion: la 1ra pasa a ocupar media pantalla
-            # en vez de quedar con el ancho parcial pensado para dos
-            place_left(xid1, 50)
+            # sin 2da ventana disponible (o si se cancelo con Esc), la 1ra
+            # queda al mismo porcentaje configurado, no a un 50% fijo
+            place_left(xid1, percent)
         else:
             place_right(xid2, percent)
