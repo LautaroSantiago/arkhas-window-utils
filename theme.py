@@ -90,8 +90,22 @@ row:selected label {
     font-weight: bold;
 }
 
+/* pastilla estandar: se usa para las acciones (X para cerrar, Espacio
+   para maximizar) */
 .arkhas-pill {
     background-color: #1c3a2c;
+    color: #d7f5df;
+    border: 1px solid #3ea86b;
+    border-radius: 12px;
+    padding: 4px 12px;
+    font-size: 12px;
+    font-weight: bold;
+}
+
+/* variante mas oscura: distingue visualmente Esc y el contador de
+   posicion (informativos) de las acciones que modifican una ventana */
+.arkhas-pill-dark {
+    background-color: #0f1f18;
     color: #d7f5df;
     border: 1px solid #3ea86b;
     border-radius: 12px;

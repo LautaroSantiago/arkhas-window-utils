@@ -89,7 +89,8 @@ class WindowPicker(Gtk.Window):
     de ventanas se lo otorgue.
 
     Uso: xid = WindowPicker(exclude_xids={...}).run_and_get_xid()
-    Devuelve None si se cancelo con Escape.
+    Devuelve None si se cancelo (Esc) o si se maximizo la ventana
+    seleccionada con Espacio en vez de elegirla para dividir.
     """
 
     def __init__(self, exclude_xids=None):
@@ -121,16 +122,24 @@ class WindowPicker(Gtk.Window):
         windows = _get_candidate_windows(exclude_xids)
         self._windows = windows
 
-        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         outer.pack_start(header, False, False, 0)
 
         esc_pill = Gtk.Label(label="Esc")
-        esc_pill.get_style_context().add_class("arkhas-pill")
+        esc_pill.get_style_context().add_class("arkhas-pill-dark")
         header.pack_start(esc_pill, False, False, 0)
 
         if windows:
+            close_pill = Gtk.Label(label="X para cerrar")
+            close_pill.get_style_context().add_class("arkhas-pill")
+            header.pack_start(close_pill, False, False, 0)
+
+            maximize_pill = Gtk.Label(label="Espacio para maximizar")
+            maximize_pill.get_style_context().add_class("arkhas-pill")
+            header.pack_start(maximize_pill, False, False, 0)
+
             self._position_pill = Gtk.Label(label=f"Ventana 1 de {len(windows)}")
-            self._position_pill.get_style_context().add_class("arkhas-pill")
+            self._position_pill.get_style_context().add_class("arkhas-pill-dark")
             header.pack_end(self._position_pill, False, False, 0)
 
             scroller = Gtk.ScrolledWindow()
@@ -185,9 +194,8 @@ class WindowPicker(Gtk.Window):
         if pixbuf is not None:
             box.pack_start(Gtk.Image.new_from_pixbuf(pixbuf), False, False, 0)
 
-        class_group = window.get_class_group_name() or ""
         title = window.get_name() or ""
-        label = Gtk.Label(label=f"{class_group}    {title}")
+        label = Gtk.Label(label=title)
         label.set_xalign(0)
         label.set_ellipsize(Pango.EllipsizeMode.END)
         box.pack_start(label, True, True, 0)
@@ -215,6 +223,12 @@ class WindowPicker(Gtk.Window):
             # estado vacio (sin ventanas candidatas): no hay lista que
             # navegar, la unica accion posible es cancelar
             return True
+        if keyname in ("x", "X"):
+            self._close_selected_window()
+            return True
+        if keyname == "space":
+            self._maximize_selected_window()
+            return True
         if keyname in ("Return", "KP_Enter"):
             row = self.listbox.get_selected_row()
             if row is not None:
@@ -227,6 +241,43 @@ class WindowPicker(Gtk.Window):
             self._move_selection(-1)
             return True
         return False
+
+    def _maximize_selected_window(self):
+        row = self.listbox.get_selected_row()
+        if row is None:
+            return
+        row.arkhas_window.maximize()
+        # a diferencia de elegir con Enter, maximizar no pasa por
+        # placer.py (que la desmaximizaria para acomodarla al porcentaje):
+        # se cierra el picker directo, sin seleccion, para que quede
+        # maximizada tal cual.
+        self._finish(None)
+
+    def _close_selected_window(self):
+        row = self.listbox.get_selected_row()
+        if row is None:
+            return
+        window = row.arkhas_window
+        # close() pide el cierre de la ventana (equivalente a la X del
+        # gestor de ventanas); es asincrono, la app puede tardar en
+        # cerrarse o incluso cancelarlo (ej: "guardar cambios?"). Se saca
+        # la fila de la lista de todos modos de forma optimista, sin
+        # esperar confirmacion.
+        window.close(Gtk.get_current_event_time())
+
+        index = row.get_index()
+        self._windows = [w for w in self._windows if w.get_xid() != window.get_xid()]
+        self.listbox.remove(row)
+
+        if not self._windows:
+            # no queda nada para elegir: mismo resultado que cancelar
+            self._finish(None)
+            return
+
+        next_row = self.listbox.get_row_at_index(min(index, len(self._windows) - 1))
+        if next_row is not None:
+            self.listbox.select_row(next_row)
+            next_row.grab_focus()
 
     def _on_row_selected(self, listbox, row):
         if row is None or self._position_pill is None:
