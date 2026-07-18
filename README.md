@@ -75,6 +75,17 @@ Para terminar el proceso del todo (y que el atajo deje de funcionar):
 pkill -f "python3 main.py"
 ```
 
+### Si el atajo deja de responder
+
+`arkhas-restart.sh` mata cualquier instancia (nueva o vieja), limpia el lockfile, y vuelve a levantar Arkhas desde cero — sin tener que acordarse de la secuencia de comandos a mano cada vez:
+
+```bash
+cd ~/arkhas
+bash arkhas-restart.sh
+```
+
+Al final imprime el log y confirma si el proceso quedó corriendo. Si el problema persiste después de esto, revisá también que la tecla configurada siga llegando al servidor X (por ejemplo con `xev`, sobre todo si usás teclas remapeadas con xmodmap/xcape).
+
 ## Estructura del proyecto
 
 ```
@@ -90,6 +101,7 @@ arkhas/
 ├── test_picker_flow.py        # Prueba manual: encadena 2 selecciones del picker
 ├── test_placer_flow.py        # Prueba manual: flujo completo de selección + posicionamiento
 ├── arkhas-autostart.desktop   # Entrada XDG para arranque automático (instalación desde código fuente)
+├── arkhas-restart.sh           # Reinicia Arkhas de cero (mata instancias, limpia lock, relanza)
 ├── build_deb.sh                # Genera arkhas_<version>_all.deb a partir del código actual (pausado, ver más abajo)
 ├── packaging/debian/           # Estructura del paquete Debian (control, .desktop, autostart)
 └── README.md

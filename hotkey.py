@@ -23,6 +23,21 @@ MODIFIER_MASKS = {
 _IGNORED_LOCKS = (0, Xlib.X.LockMask, Xlib.X.Mod2Mask, Xlib.X.LockMask | Xlib.X.Mod2Mask)
 _LOCK_BITS = Xlib.X.LockMask | Xlib.X.Mod2Mask
 
+# Si se mantiene la tecla apretada un instante, X manda varios KeyPress
+# seguidos por auto-repeat (confirmado con xev: dos KeyPress/KeyRelease casi
+# pegados en el mismo toque). Sin un debounce, cada uno dispara on_trigger
+# por separado, lo que puede terminar abriendo varios pickers apilados en
+# vez de uno solo. Se ignora cualquier KeyPress que llegue a menos de este
+# intervalo del anterior aceptado.
+_DEBOUNCE_SECONDS = 0.4
+
+# Si la conexion X del hilo de escucha se cae por cualquier motivo (hiccup
+# del servidor X, resume de suspension, etc), se reintenta reconectar en
+# vez de dejar el hilo morir en silencio para siempre. Backoff simple:
+# empieza corto, tope en _RECONNECT_MAX_DELAY.
+_RECONNECT_INITIAL_DELAY = 1.0
+_RECONNECT_MAX_DELAY = 10.0
+
 
 class HotkeyListener:
     """Atajo global via XGrabKey directo sobre la ventana raiz, en vez de
@@ -38,6 +53,8 @@ class HotkeyListener:
         self._running = False
         self._keycode = None
         self._modmask = None
+        self._hotkey = None  # se guarda para poder re-armar el grab tras una reconexion
+        self._last_trigger_time = 0.0
 
     def start(self, hotkey):
         # stop() primero: si ya habia un grab activo con otra combinacion,
@@ -49,9 +66,20 @@ class HotkeyListener:
         if not hotkey or not hotkey.get("keysym"):
             return
 
-        keysym = Xlib.XK.string_to_keysym(hotkey["keysym"])
+        self._hotkey = hotkey
+        self._setup_grab()
+
+        self._running = True
+        self._thread = threading.Thread(target=self._listen_loop, daemon=True)
+        self._thread.start()
+
+    def _setup_grab(self):
+        """Abre la conexion X y pide el grab para self._hotkey. Separado de
+        start() para poder reutilizarlo desde _listen_loop cuando hay que
+        reconectar tras perder la conexion."""
+        keysym = Xlib.XK.string_to_keysym(self._hotkey["keysym"])
         if keysym == 0:
-            raise ValueError(f"No reconozco la tecla: {hotkey['keysym']!r}")
+            raise ValueError(f"No reconozco la tecla: {self._hotkey['keysym']!r}")
 
         # Conexion X11 propia y separada de la que usa GTK/GDK para la
         # interfaz: el grab y el loop de eventos corren en su propio hilo,
@@ -61,7 +89,7 @@ class HotkeyListener:
         self._keycode = self._display.keysym_to_keycode(keysym)
 
         self._modmask = 0
-        for name in hotkey.get("modifiers", []):
+        for name in self._hotkey.get("modifiers", []):
             self._modmask |= MODIFIER_MASKS.get(name, 0)
 
         self._root.change_attributes(event_mask=Xlib.X.KeyPressMask)
@@ -72,16 +100,14 @@ class HotkeyListener:
             )
         self._display.sync()
 
-        self._running = True
-        self._thread = threading.Thread(target=self._listen_loop, daemon=True)
-        self._thread.start()
-
     def stop(self):
         self._running = False
         if self._thread is not None:
             self._thread.join(timeout=0.5)
             self._thread = None
+        self._close_display()
 
+    def _close_display(self):
         if self._display is not None:
             try:
                 for lock in _IGNORED_LOCKS:
@@ -103,6 +129,7 @@ class HotkeyListener:
         # stop() cierra la conexion. El intervalo de 50ms es indetectable
         # para un atajo de teclado pero permite revisar self._running
         # seguido y salir del hilo sin quedar colgado.
+        reconnect_delay = _RECONNECT_INITIAL_DELAY
         while self._running:
             try:
                 while self._display.pending_events() > 0:
@@ -114,13 +141,29 @@ class HotkeyListener:
                     # el evento en si trae el estado real del teclado
                     pressed_mod = event.state & ~_LOCK_BITS
                     if event.detail == self._keycode and pressed_mod == self._modmask:
+                        now = time.monotonic()
+                        if now - self._last_trigger_time < _DEBOUNCE_SECONDS:
+                            continue  # auto-repeat u otro rebote: se ignora
+                        self._last_trigger_time = now
                         if self.on_trigger:
                             # el callback puede abrir dialogos GTK, que no
                             # son thread-safe: se despacha al hilo principal
                             # via GLib.idle_add en vez de llamarlo directo
                             GLib.idle_add(self.on_trigger)
-            except Exception:
-                break
+                reconnect_delay = _RECONNECT_INITIAL_DELAY  # se resetea tras un ciclo sano
+            except Exception as e:
+                if not self._running:
+                    break  # stop() ya pidio salir; la excepcion es esperable (conexion cerrada a proposito)
+                print(f"Arkhas: conexion del atajo perdida ({e!r}), reintentando en {reconnect_delay:.0f}s", flush=True)
+                self._close_display()
+                time.sleep(reconnect_delay)
+                reconnect_delay = min(reconnect_delay * 2, _RECONNECT_MAX_DELAY)
+                try:
+                    self._setup_grab()
+                    print("Arkhas: atajo reconectado OK", flush=True)
+                except Exception as e2:
+                    print(f"Arkhas: fallo al reconectar el atajo: {e2!r}", flush=True)
+                continue
             time.sleep(0.05)
 
 

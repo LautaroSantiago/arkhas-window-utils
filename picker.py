@@ -42,18 +42,29 @@ def _get_candidate_windows(exclude_xids):
 
     windows = []
     for w in stacked:
-        # exclude_xids identifica ventanas por xid puntual, no por clase de
-        # aplicacion: permite elegir dos instancias del mismo navegador sin
-        # que la segunda seleccion vuelva a ofrecer la que ya se eligio.
-        if w.get_xid() in exclude_xids:
-            continue
-        # sin este filtro, la propia ventana de configuracion de Arkhas (si
-        # esta abierta de fondo) apareceria como candidata para dividir.
-        if w.get_pid() == own_pid:
-            continue
-        if w.is_skip_tasklist():
-            continue
-        if w.get_window_type() not in _SELECTABLE_TYPES:
+        try:
+            # exclude_xids identifica ventanas por xid puntual, no por
+            # clase de aplicacion: permite elegir dos instancias del
+            # mismo navegador sin que la segunda seleccion vuelva a
+            # ofrecer la que ya se eligio.
+            if w.get_xid() in exclude_xids:
+                continue
+            # sin este filtro, la propia ventana de configuracion de
+            # Arkhas (si esta abierta de fondo) apareceria como
+            # candidata para dividir.
+            if w.get_pid() == own_pid:
+                continue
+            if w.is_skip_tasklist():
+                continue
+            if w.get_window_type() not in _SELECTABLE_TYPES:
+                continue
+        except Exception as e:
+            # una ventana puntual en estado raro (cerrandose justo en
+            # este instante, sin PID valido, etc.) no debe tirar abajo
+            # el listado entero: se salta esa y se sigue con el resto,
+            # dejando rastro en el log para poder diagnosticar si se
+            # repite.
+            print(f"Arkhas: ventana descartada al listar candidatas: {e!r}", flush=True)
             continue
         windows.append(w)
     return windows
@@ -106,11 +117,14 @@ def pick_window(exclude_xids=None):
     """
     windows = _get_candidate_windows(exclude_xids)
     if not windows:
+        print("Arkhas: pick_window sin candidatas, no se abre picker", flush=True)
         return None
     if len(windows) == 1:
         window = windows[0]
         window.activate(Gtk.get_current_event_time())
+        print(f"Arkhas: pick_window auto-selecciono unica candidata xid={window.get_xid()}", flush=True)
         return window.get_xid()
+    print(f"Arkhas: pick_window abre picker con {len(windows)} candidatas", flush=True)
     return WindowPicker(exclude_xids=exclude_xids).run_and_get_xid()
 
 
