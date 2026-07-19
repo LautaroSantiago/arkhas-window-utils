@@ -90,7 +90,7 @@ row:selected label {
     font-weight: bold;
 }
 
-.arkhas-row-cpu {
+.arkhas-row-mem {
     color: #7fbf9e;
     font-size: 11px;
     font-family: monospace;

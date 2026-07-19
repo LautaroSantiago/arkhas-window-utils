@@ -279,15 +279,19 @@ class WindowPicker(Gtk.Window):
         label.set_ellipsize(Pango.EllipsizeMode.END)
         box.pack_start(label, True, True, 0)
 
-        # % de CPU que ocupa el proceso de esta ventana (y sus hijos), no
-        # cual es la causa (no se distingue "esta compilando" de "esta
-        # reproduciendo un video" - solo el numero, como se pidio).
-        cpu_label = Gtk.Label(label="")
-        cpu_label.get_style_context().add_class("arkhas-row-cpu")
-        box.pack_start(cpu_label, False, False, 0)
-        row.arkhas_cpu_label = cpu_label
-        row.arkhas_cpu_tracker = (
-            sysstats.ProcessTreeCpu(window.get_pid())
+        # % de RAM+swap combinado que ocupa el proceso de esta ventana (y
+        # sus hijos), no cual es la causa - solo el numero, como se pidio.
+        # Se usa memoria en vez de CPU porque CPU cae a 0% en cuanto la app
+        # queda inactiva (la mayoria del tiempo para la mayoria de las
+        # apps), mientras que la memoria reservada se mantiene estable
+        # aunque la app este quieta - da una lectura mas representativa de
+        # "cuanto pesa" cada ventana.
+        mem_label = Gtk.Label(label="")
+        mem_label.get_style_context().add_class("arkhas-row-mem")
+        box.pack_start(mem_label, False, False, 0)
+        row.arkhas_mem_label = mem_label
+        row.arkhas_mem_tracker = (
+            sysstats.ProcessTreeMemory(window.get_pid())
             if sysstats.stats_available() and window.get_pid()
             else None
         )
@@ -406,9 +410,9 @@ class WindowPicker(Gtk.Window):
             return
         row = self.listbox.get_row_at_index(0)
         while row is not None:
-            tracker = getattr(row, "arkhas_cpu_tracker", None)
+            tracker = getattr(row, "arkhas_mem_tracker", None)
             if tracker is not None:
-                row.arkhas_cpu_label.set_text(f"{tracker.poll():.0f}%")
+                row.arkhas_mem_label.set_text(f"{tracker.poll():.0f}%")
             row = self.listbox.get_row_at_index(row.get_index() + 1)
 
     def _on_stats_tick(self):

@@ -1,17 +1,8 @@
-import os
-
 try:
     import psutil
     _PSUTIL_AVAILABLE = True
 except ImportError:
     _PSUTIL_AVAILABLE = False
-
-# El % de CPU por ventana se normaliza contra el total de nucleos, para
-# que sea comparable con el % de RAM/swap del sistema (0-100 = "cuanto de
-# la capacidad total de la maquina esta usando esto"), en vez de dejarlo
-# en la escala nativa de psutil (0-100 POR NUCLEO, que puede superar 100
-# en procesos con varios hilos).
-_CPU_COUNT = (psutil.cpu_count(logical=True) or 1) if _PSUTIL_AVAILABLE else 1
 
 
 def stats_available():
@@ -26,25 +17,38 @@ def system_swap_percent():
     return psutil.swap_memory().percent
 
 
-class ProcessTreeCpu:
-    """Trackea el % de CPU (normalizado a 0-100 sobre el total de la
-    maquina) de un proceso y todos sus hijos, sumados.
+def _system_ram_swap_total_bytes():
+    # denominador para normalizar el peso de un proceso: RAM+swap totales
+    # de la maquina, no solo RAM. Un proceso que este parcialmente
+    # swappeado sigue "pesando" lo mismo en terminos de recursos usados,
+    # aunque una parte de esa memoria ya no este en RAM.
+    return psutil.virtual_memory().total + psutil.swap_memory().total
+
+
+class ProcessTreeMemory:
+    """Calcula el % de RAM+swap combinado (0-100 sobre el total del
+    sistema) que usa un proceso y todos sus hijos, sumados.
+
+    A diferencia del CPU, la memoria no cae a 0% en cuanto el proceso
+    queda inactivo: un programa que dejo de usar CPU pero sigue corriendo
+    sigue reteniendo la memoria que tiene reservada, asi que este numero
+    da una lectura mas estable de "cuanto pesa" cada ventana que el % de
+    CPU (que fluctua a 0% todo el tiempo para cualquier app idle).
 
     Un proceso "hijo" cubre, por ejemplo, un compilador lanzado desde una
     terminal, o un proceso de decodificacion de video lanzado por un
-    navegador: sin sumar el arbol completo, esa carga no se reflejaria en
-    el PID de la ventana en si.
+    navegador: sin sumar el arbol completo, ese consumo no se reflejaria
+    en el PID de la ventana en si.
 
-    Hay que mantener la MISMA instancia de esta clase entre polls:
-    psutil.Process.cpu_percent() mide el uso transcurrido desde la ULTIMA
-    vez que se llamo sobre ese mismo objeto Process; crear un Process
-    nuevo en cada poll siempre devolveria 0.0 (nunca hay "ultima vez").
+    A diferencia de ProcessTreeCpu (que necesitaba mantener la misma
+    instancia de psutil.Process entre polls para medir un intervalo), la
+    memoria es una lectura instantanea: no hace falta "primeria" nada
+    entre polls, cada llamada a poll() puede re-descubrir el arbol de
+    procesos entero sin perder precision.
     """
 
     def __init__(self, root_pid):
         self._root_pid = root_pid
-        self._procs = {}  # pid -> psutil.Process, ya "primeados"
-        self._discover_and_prime()
 
     def _discover(self):
         if not self._root_pid:
@@ -60,34 +64,23 @@ class ProcessTreeCpu:
             pass
         return procs
 
-    def _discover_and_prime(self):
-        # cpu_percent(None) sin bloquear arranca el contador interno de
-        # ese Process; la primera lectura siempre da 0.0 (no hay intervalo
-        # previo), pero deja el objeto listo para que el proximo poll() de
-        # un numero real.
-        for p in self._discover():
-            if p.pid not in self._procs:
-                try:
-                    p.cpu_percent(None)
-                    self._procs[p.pid] = p
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    pass
-
     def poll(self):
-        # se vuelve a descubrir el arbol en cada poll: un proceso de
-        # compilacion o de decodificacion que arranco despues de crear
-        # este tracker tiene que sumarse tambien, no solo los que existian
-        # al momento de abrir el picker.
-        self._discover_and_prime()
-
-        total = 0.0
-        dead_pids = []
-        for pid, proc in self._procs.items():
+        total_bytes = 0
+        for p in self._discover():
             try:
-                total += proc.cpu_percent(None)
+                total_bytes += p.memory_info().rss
+                try:
+                    # memory_full_info() suma tambien la porcion swappeada
+                    # (campo "swap", solo disponible en Linux); no todos
+                    # los procesos son legibles (AccessDenied en procesos
+                    # de otro usuario), en ese caso se cuenta solo el RSS.
+                    total_bytes += getattr(p.memory_full_info(), "swap", 0)
+                except (psutil.AccessDenied, psutil.NoSuchProcess, AttributeError):
+                    pass
             except (psutil.NoSuchProcess, psutil.AccessDenied):
-                dead_pids.append(pid)
-        for pid in dead_pids:
-            del self._procs[pid]
+                continue
 
-        return total / _CPU_COUNT
+        denom = _system_ram_swap_total_bytes()
+        if denom <= 0:
+            return 0.0
+        return (total_bytes / denom) * 100
