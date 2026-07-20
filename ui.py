@@ -31,6 +31,9 @@ class ArkhasWindow(Gtk.Window):
         self.config = load_config()
         self.listening_for_key = False
         self.hotkey_listener = HotkeyListener(on_trigger=self.on_hotkey_triggered)
+        # main.py asigna esto despues de crear la ventana; se accede via
+        # getattr por si en algun momento se instancia sin tray (ej. tests)
+        self.tray = None
 
         root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=20)
         self.add(root)
@@ -80,6 +83,15 @@ class ArkhasWindow(Gtk.Window):
         if not hk:
             return "Sin asignar — click para configurar"
         return self._format_hotkey(hk)
+
+    def update_tray_tooltip(self):
+        if self.tray is None:
+            return
+        hk = self.config.get("hotkey")
+        if hk:
+            self.tray.set_tooltip(f"Arkhas — {self._format_hotkey(hk)}")
+        else:
+            self.tray.set_tooltip("Arkhas — sin atajo asignado")
 
     @staticmethod
     def _format_hotkey(hk):
@@ -166,6 +178,7 @@ class ArkhasWindow(Gtk.Window):
         print(f"Arkhas: config hotkey={hk}", flush=True)
         if not hk:
             self.status_label.set_text("Guardado." if save_status else "")
+            self.update_tray_tooltip()
             return
         try:
             self.hotkey_listener.start(hk)
@@ -175,6 +188,7 @@ class ArkhasWindow(Gtk.Window):
         except Exception as e:
             print(f"Arkhas: ERROR arrancando el listener: {e!r}", flush=True)
             self.status_label.set_text(f"No pude activar el atajo: {e}")
+        self.update_tray_tooltip()
 
     def on_hotkey_triggered(self):
         # Este metodo lo invoca hotkey.py via GLib.idle_add, asi que corre
@@ -189,15 +203,19 @@ class ArkhasWindow(Gtk.Window):
             percent = self.config.get("split_percent", 50)
 
             # pick_window no abre ningun dialogo si hay 0 ventanas (no hace
-            # nada) o 1 sola (la toma directo); solo con 2 o mas candidatas
-            # muestra el picker.
+            # nada, mas mostrar un aviso breve) o 1 sola (la toma directo);
+            # solo con 2 o mas candidatas muestra el picker.
             xid1 = pick_window()
             print(f"Arkhas: 1ra seleccion xid={xid1}", flush=True)
             if xid1 is None:
                 return
             place_left(xid1, percent)
 
-            xid2 = pick_window({xid1})
+            # sin aviso para la 2da: llegar aca sin mas ventanas es un
+            # desenlace normal del flujo (la 1ra ventana ya elegida pasa
+            # a ocupar el porcentaje configurado), no una situacion que
+            # amerite interrumpir con un mensaje
+            xid2 = pick_window({xid1}, show_empty_notice=False)
             print(f"Arkhas: 2da seleccion xid={xid2}", flush=True)
             if xid2 is None:
                 # sin 2da ventana disponible (o si se cancelo con Esc), la

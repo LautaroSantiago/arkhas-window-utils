@@ -12,7 +12,7 @@ echo "Armando arkhas ${VERSION}..."
 
 mkdir -p "$MODULES_DIR"
 rm -f "$MODULES_DIR"/*.py
-cp config.py theme.py ui.py main.py hotkey.py picker.py placer.py sysstats.py "$MODULES_DIR/"
+cp config.py theme.py ui.py main.py hotkey.py picker.py placer.py sysstats.py tray.py "$MODULES_DIR/"
 
 chmod 755 "$PKG_DIR/DEBIAN"
 chmod 644 "$PKG_DIR/DEBIAN/control"

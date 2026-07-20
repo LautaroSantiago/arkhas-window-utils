@@ -1,10 +1,10 @@
 Package: arkhas
-Version: 1.8.0
+Version: 2.0.0
 Section: utils
 Priority: optional
 Installed-Size: 112
 Architecture: all
-Depends: python3, python3-gi, gir1.2-gtk-3.0, gir1.2-wnck-3.0, python3-xlib, python3-psutil
+Depends: python3, python3-gi, gir1.2-gtk-3.0, gir1.2-wnck-3.0, python3-xlib, python3-psutil, python3-cairo
 Maintainer: Lautaro Subeldia <LautaroSantiago@users.noreply.github.com>
 Homepage: https://github.com/LautaroSantiago/arkhas
 Description: Divisor de pantalla activado por atajo global

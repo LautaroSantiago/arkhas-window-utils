@@ -7,6 +7,8 @@ gi.require_version("Gtk", "3.0")
 gi.require_version("Wnck", "3.0")
 from gi.repository import Gtk, Gdk, GLib, Wnck, Pango
 
+import cairo
+
 import sysstats
 
 # Solo tiene sentido ofrecer ventanas normales o dialogos para dividir
@@ -101,23 +103,32 @@ def _apply_mem_severity(label, percent):
     ctx.add_class(_mem_severity_class(percent))
 
 
-def pick_window(exclude_xids=None):
+def pick_window(exclude_xids=None, show_empty_notice=True):
     """Resuelve una seleccion de ventana, sin abrir el picker si no hace
     falta elegir entre nada:
 
     - 0 ventanas candidatas: devuelve None (no hay nada para elegir; el
       llamador decide que hacer, tipicamente no hacer nada o caer al
-      porcentaje configurado).
+      porcentaje configurado). Si show_empty_notice es True, ademas
+      muestra un aviso breve en pantalla - sin esto, apretar el atajo sin
+      tener nada abierto no daba ninguna señal visible de que el atajo
+      SI se disparo, dando la sensacion de que "no hacia nada" o que el
+      proceso se habia colgado.
     - 1 sola candidata: se elige y activa automaticamente, sin mostrar
       el picker (elegir entre una sola opcion no aporta nada).
     - 2 o mas candidatas: se muestra el picker normal.
 
     Sirve tanto para la 1ra seleccion (exclude_xids=None) como para la
-    2da (exclude_xids={xid de la 1ra}).
+    2da (exclude_xids={xid de la 1ra}) - para la 2da normalmente se pasa
+    show_empty_notice=False, porque llegar ahi sin mas ventanas es un
+    desenlace normal del flujo (la 1ra ventana ya elegida pasa a ocupar
+    el porcentaje configurado), no una situacion que amerite un aviso.
     """
     windows = _get_candidate_windows(exclude_xids)
     if not windows:
         print("Arkhas: pick_window sin candidatas, no se abre picker", flush=True)
+        if show_empty_notice:
+            show_no_windows_notice()
         return None
     if len(windows) == 1:
         window = windows[0]
@@ -126,6 +137,89 @@ def pick_window(exclude_xids=None):
         return window.get_xid()
     print(f"Arkhas: pick_window abre picker con {len(windows)} candidatas", flush=True)
     return WindowPicker(exclude_xids=exclude_xids).run_and_get_xid()
+
+
+# Cuanto tiempo queda en pantalla el aviso de "no hay ventanas" antes de
+# cerrarse solo (tambien se puede cerrar antes con cualquier tecla o click).
+_NO_WINDOWS_NOTICE_MS = 2200
+
+
+def _draw_empty_state_face(widget, ctx):
+    """Carita simple dibujada en Cairo (no un archivo de imagen ni un
+    personaje de terceros): ojos cerrados en forma de arco y una boca
+    chica y neutra, transmitiendo "no encontre nada" de forma liviana.
+    Mismo enfoque que el icono de la bandeja (tray.py): todo vectorial,
+    en la paleta verde de la app, sin depender de assets externos."""
+    w = widget.get_allocated_width()
+    h = widget.get_allocated_height()
+    cx, cy, r = w / 2, h / 2, min(w, h) / 2 - 4
+
+    ctx.set_source_rgba(0, 0, 0, 0)
+    ctx.paint()
+
+    # cara: circulo con el verde acento de la app
+    ctx.arc(cx, cy, r, 0, 2 * 3.14159)
+    ctx.set_source_rgb(0x3E / 255, 0xA8 / 255, 0x6B / 255)
+    ctx.fill()
+
+    ctx.set_source_rgb(0x11 / 255, 0x26 / 255, 0x1E / 255)
+    ctx.set_line_width(max(2, r * 0.08))
+    ctx.set_line_cap(cairo.LINE_CAP_ROUND)
+
+    # ojos: dos arcos hacia abajo (^ ^), ojos cerrados/tranquilos
+    eye_y = cy - r * 0.15
+    eye_r = r * 0.28
+    for dx in (-r * 0.38, r * 0.38):
+        ctx.new_sub_path()
+        ctx.arc(cx + dx, eye_y + eye_r * 0.5, eye_r, 3.14159, 2 * 3.14159)
+        ctx.stroke()
+
+    # boca: linea curva chica, expresion neutra/tranquila
+    ctx.new_sub_path()
+    ctx.arc(cx, cy + r * 0.45, r * 0.3, 3.14159 * 0.15, 3.14159 * 0.85)
+    ctx.stroke()
+
+
+def show_no_windows_notice():
+    """Popup chico y no-modal: aparece con la carita + el mensaje, y se
+    cierra solo despues de un rato o con cualquier tecla/click. No usa
+    Gtk.main() anidado como WindowPicker (no hace falta bloquear nada
+    aca, no hay ninguna eleccion que esperar) - simplemente se muestra y
+    se destruye sola via GLib.timeout_add, dejando que el loop principal
+    de la app siga su curso normalmente."""
+    win = Gtk.Window(type=Gtk.WindowType.POPUP)
+    win.set_position(Gtk.WindowPosition.CENTER_ALWAYS)
+    win.get_style_context().add_class("arkhas-picker")
+
+    screen = win.get_screen()
+    if screen.is_composited():
+        rgba_visual = screen.get_rgba_visual()
+        if rgba_visual is not None:
+            win.set_visual(rgba_visual)
+
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+    box.set_border_width(24)
+    win.add(box)
+
+    face = Gtk.DrawingArea()
+    face.set_size_request(90, 90)
+    face.connect("draw", _draw_empty_state_face)
+    box.pack_start(face, False, False, 0)
+
+    label = Gtk.Label(label="No hay ninguna ventana para dividir")
+    label.set_justify(Gtk.Justification.CENTER)
+    label.get_style_context().add_class("arkhas-picker-empty-title")
+    box.pack_start(label, False, False, 0)
+
+    win.show_all()
+
+    def _dismiss(*_):
+        win.destroy()
+        return False  # False = no repetir (para el timeout_add) / GTK ignora el valor para eventos
+
+    GLib.timeout_add(_NO_WINDOWS_NOTICE_MS, _dismiss)
+    win.connect("key-press-event", _dismiss)
+    win.connect("button-press-event", _dismiss)
 
 
 class WindowPicker(Gtk.Window):
