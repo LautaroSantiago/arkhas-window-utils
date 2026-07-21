@@ -63,6 +63,30 @@ python3 arkhas.py
 6. Dentro del picker: flechas para navegar, Enter para elegir, **X** para cerrar la ventana resaltada sin salir del picker, **Espacio** para maximizarla y cerrar el picker. Abajo, las pastillas de RAM y swap del sistema se actualizan solas.
 7. El ícono de la bandeja siempre está disponible: click izquierdo abre la configuración, click derecho abre un menú (incluye "Salir", que corta el proceso del todo sin necesidad de terminal).
 
+### Atajo del sistema para abrir la configuración (opcional)
+
+Además del ícono de bandeja, se puede armar un atajo de teclado del *sistema* (vía MATE, separado del atajo interno de Arkhas que dispara el picker) para abrir/traer al frente la ventana de configuración en cualquier momento, sin necesitar el mouse.
+
+Primero, revisá qué atajos personalizados ya tenés cargados, para no pisar ninguno:
+
+```bash
+dconf list /org/mate/desktop/keybindings/
+```
+
+Elegí un índice `customN` libre (por ejemplo `custom1`) y corré:
+
+```bash
+gsettings set org.mate.control-center.keybinding:/org/mate/desktop/keybindings/customN/ action "arkhas"
+gsettings set org.mate.control-center.keybinding:/org/mate/desktop/keybindings/customN/ name 'Abrir opciones de Arkhas'
+gsettings set org.mate.control-center.keybinding:/org/mate/desktop/keybindings/customN/ binding '<Control><Alt>o'
+```
+
+Esto asume que Arkhas está instalado vía el `.deb` (el comando `arkhas` disponible en el PATH del sistema). Si en cambio corrés desde el código fuente sin instalar el `.deb`, **no uses `cd` suelto** en el `action` del atajo — un atajo de teclado se ejecuta sin ningún working directory garantizado, así que `cd ruta && comando` puede fallar de forma intermitente según el gestor de atajos. Envolvé todo en `bash -c` con la ruta absoluta del proyecto en vez de `~` (algunos gestores de atajos no expanden `~` correctamente):
+
+```bash
+gsettings set org.mate.control-center.keybinding:/org/mate/desktop/keybindings/customN/ action "bash -c 'cd /ruta/absoluta/a/arkhas-window-utils && python3 arkhas.py'"
+```
+
 ### Arranque automático al iniciar sesión
 
 ```bash
