@@ -78,6 +78,24 @@ Para terminar el proceso del todo (y que el atajo deje de funcionar):
 pkill -f "python3 arkhas.py"
 ```
 
+### Atajo de sistema para abrir la configuración
+
+Si instalaste el `.deb`, el comando `arkhas` ya queda en el PATH del sistema — podés asignarle un atajo de teclado propio (aparte del atajo interno de Arkhas que dispara el picker) para abrir la ventana de configuración sin tocar la terminal ni el ícono de la bandeja. En MATE:
+
+```bash
+gsettings set org.mate.control-center.keybinding:/org/mate/desktop/keybindings/customN/ action "arkhas"
+gsettings set org.mate.control-center.keybinding:/org/mate/desktop/keybindings/customN/ name 'Abrir opciones de Arkhas'
+gsettings set org.mate.control-center.keybinding:/org/mate/desktop/keybindings/customN/ binding '<Control><Alt>o'
+```
+
+(reemplazá `customN` por un índice libre — revisá `dconf list /org/mate/desktop/keybindings/` para ver cuáles ya están en uso).
+
+**Consejo:** para un atajo de teclado no conviene usar `cd` — el comando se ejecuta sin que el working directory esté garantizado. Si necesitás correr Arkhas desde el código fuente en vez del comando instalado, envolvé el `cd` en `bash -c` y usá la ruta absoluta en vez de `~`, ya que algunos gestores de atajos no expanden el `~` correctamente:
+
+```bash
+gsettings set org.mate.control-center.keybinding:/org/mate/desktop/keybindings/customN/ action "bash -c 'cd /home/tu-usuario/arkhas-window-utils && python3 arkhas.py'"
+```
+
 ### Si el atajo deja de responder
 
 `arkhas-restart.sh` mata cualquier instancia (nueva o vieja), limpia el lockfile, y vuelve a levantar Arkhas desde cero — sin tener que acordarse de la secuencia de comandos a mano cada vez:
@@ -149,6 +167,21 @@ arkhas/
 | El atajo no anda justo al reiniciar la PC, pero sí después de reiniciar Arkhas a mano | Si usás un remapeo de teclado (xmodmap/xcape) que corre por su cuenta al iniciar sesión, puede terminar de aplicarse DESPUÉS de que Arkhas ya arrancó — bug corregido: Arkhas ahora reacciona en vivo al evento `MappingNotify` que manda el servidor X cuando el mapeo cambia, sin importar el orden de arranque | Actualizar a la versión más reciente |
 | Click en el ícono de la bandeja (o volver a correr `arkhas`) no abre la ventana si el proceso lleva un rato inactivo | `signal.signal()` de Python solo procesa la señal cuando el intérprete "recupera el control" — con el loop de GLib en reposo total, eso podía tardar indefinidamente o no pasar nunca — bug corregido: ahora se usa `GLib.unix_signal_add()`, que integra la señal directamente en el loop de eventos de GLib | Actualizar a la versión más reciente |
 | Queda un hueco o superposición entre las dos ventanas | Alguna app declara `_GTK_FRAME_EXTENTS` de forma poco convencional | Abrí un issue con la salida de `ARKHAS_DEBUG=1 python3 arkhas.py` |
+
+## Historial de versiones
+
+Resumen de los hitos más importantes — para el detalle completo, `git log`.
+
+- **v1.0.0** — Versión inicial: divisor de pantalla activado por atajo, picker propio (sin rofi), atajo configurable vía `XGrabKey`.
+- **v1.1.0** — Código comentado de punta a punta. Primer empaquetado `.deb`. Auto-resolución de la selección (0/1/2+ ventanas candidatas). Orden de la lista por uso más reciente (MRU). Picker con fondo transparente.
+- **v1.2.0** — **X** para cerrar y **Espacio** para maximizar ventanas directo desde el picker.
+- *(entre v1.2.0 y v1.7.0)* — Tramo de correcciones sobre el manejo de atajos y el picker, incluyendo un fix para que el atajo no dejara de responder si `maximize()` fallaba a mitad de camino (el `Gtk.main_quit()` del picker no se alcanzaba a ejecutar). También se sumó la severidad por color en las pastillas de RAM/swap, y se reencuadró el proyecto como "utilidad de control rápido de ventanas" en vez de solo "divisor de pantallas".
+- **v1.7.0** — Fix crítico: un `AttributeError` silencioso rompía el picker apenas había 2 o más ventanas (`sysstats.ProcessTreeCpu` no existía). Fix: Escape ya no se guarda como atajo global al usarse para cancelar la captura de tecla — antes dejaba el atajo roto sin ningún aviso. Bloqueo de X/Espacio/Escape sueltas como atajo global, con validación también al cargar `config.json`. El % por ventana pasa de CPU a memoria (RAM+swap), más estable porque no cae a 0% con la app inactiva. Logging con timestamp que se acumula entre arranques en vez de pisarse, y `arkhas-restart.sh` para reiniciar todo de una.
+- **v1.8.0** — Fix: el atajo podía quedar armado con keycode 0 (`AnyKey` en X11, agarra *todas* las teclas) si el remapeo de teclado (xmodmap) no había terminado de aplicarse al momento de arrancar. Ahora reacciona en vivo al evento `MappingNotify` que manda el servidor X cuando el mapeo cambia.
+- **v2.0.0** — Ícono de bandeja (`Gtk.StatusIcon` dibujado en código, sin archivo de imagen). Aviso amigable con una carita dibujada cuando no hay ninguna ventana para dividir. Resistencia a caídas del proceso: try/except de última instancia en el arranque, manejador de `XSetIOErrorHandler` con auto-relanzo (`execv`) si se pierde la conexión X, rotación de log a los 5MB, callbacks de la bandeja blindados. Fix de una condición de carrera en el lockfile que podía mostrar un PID vacío si dos instancias arrancaban casi al mismo tiempo en el boot. Se descarta el intento de bajar `oom_score_adj` (en Linux, un proceso sin privilegios no puede hacerlo — solo generaba ruido en el log sin ningún beneficio real).
+- *(rename)* — El repositorio y el paquete pasan a llamarse **arkhas-window-utils**; `main.py` se renombra a `arkhas.py`.
+- **v2.2.0** — Fix: el click en el ícono de bandeja (y `SIGUSR1` en general) no abría la ventana si el proceso llevaba un rato inactivo. `signal.signal()` de Python solo procesa la señal cuando el intérprete "recupera el control", y con el loop de GLib en reposo total eso podía tardar indefinidamente. Ahora usa `GLib.unix_signal_add()`, que integra la señal directamente en el loop de eventos de GLib.
+- **v2.3.0** *(en curso)* — Se agrega manejo explícito de `SIGTERM` con logging: hasta ahora, si algo terminaba el proceso con esa señal (a diferencia de un `kill -9`, que ningún software puede interceptar), no quedaba ningún rastro en el log de que eso había pasado.
 
 ## Licencia
 

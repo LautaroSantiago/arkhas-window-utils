@@ -274,6 +274,22 @@ def main():
 
     win.connect("destroy", _on_destroy)
 
+    # SIGTERM (kill sin -9, o un cierre "prolijo" pedido por systemd/logind/
+    # el gestor de sesion) no tiene ningun handler por default en Python:
+    # el proceso termina directo, sin pasar por ningun finally ni excepcion
+    # capturable, dejando CERO rastro en el log de que eso fue lo que paso -
+    # exactamente el mismo punto ciego que un kill -9, salvo que esta señal
+    # SI se puede interceptar. Se le agrega un log claro antes de cerrar
+    # ordenadamente (via loop.quit(), no os._exit): la proxima vez que el
+    # proceso "se detenga solo" sin ninguna otra explicacion en el log, esto
+    # deja confirmado si fue por una señal externa o por otra cosa.
+    def _on_sigterm():
+        print(f"Arkhas: SIGTERM recibido ({datetime.datetime.now().isoformat()}), cerrando", flush=True)
+        loop.quit()
+        return GLib.SOURCE_REMOVE
+
+    GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, _on_sigterm)
+
     def _on_tray_quit():
         # A diferencia de cerrar la ventana (que solo la oculta, el atajo
         # sigue vivo), "Salir" del menu de bandeja termina el proceso del
