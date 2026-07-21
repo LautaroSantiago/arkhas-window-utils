@@ -239,13 +239,28 @@ def main():
         print("Arkhas: pedido de mostrar ventana recibido", flush=True)
         win.show_all()
         win.present()
-        return False  # False = no reprogramar (GLib.idle_add es one-shot con esto)
 
-    # SIGUSR1 llega de _acquire_lock() de OTRO proceso (ver arriba). El
-    # handler de señal de Python corre en un punto arbitrario del hilo
-    # principal, no es seguro llamar GTK ahi directo: se agenda con
-    # GLib.idle_add para que corra dentro del loop de eventos.
-    signal.signal(signal.SIGUSR1, lambda signum, frame: GLib.idle_add(_show_window))
+    # SIGUSR1 llega de _acquire_lock() de OTRO proceso (ver arriba).
+    #
+    # OJO: signal.signal() de Python puro NO alcanza aca. Un handler
+    # registrado asi solo se ejecuta cuando el interprete de Python
+    # "recupera el control" entre instrucciones - pero GLib.MainLoop().run()
+    # es una llamada bloqueante en C, y si el loop esta completamente en
+    # reposo (sin ningun timer u otro evento corriendo en ese momento),
+    # Python puede no llegar a procesar la señal pendiente durante un
+    # buen rato, o directamente nunca si no pasa nada mas que lo despierte.
+    # Esto se confirmo en la practica: funcionaba bien poco despues de
+    # actividad reciente (loop "caliente"), pero no en reposo total.
+    #
+    # GLib.unix_signal_add() integra la señal directamente como una fuente
+    # mas del loop de eventos de GLib (via el mecanismo nativo de C, no el
+    # de Python), garantizando que se procese sin depender de que el
+    # interprete "se despierte" por otra causa.
+    def _on_sigusr1():
+        _show_window()
+        return GLib.SOURCE_CONTINUE  # se mantiene escuchando futuras señales
+
+    GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGUSR1, _on_sigusr1)
 
     # GLib.MainLoop directo en vez de Gtk.main()/Gtk.main_quit(): el
     # wrapper de manejo de señales que trae gi.overrides.Gtk.main() da

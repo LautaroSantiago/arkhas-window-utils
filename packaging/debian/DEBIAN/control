@@ -1,8 +1,8 @@
 Package: arkhas
-Version: 2.1.0
+Version: 2.2.0
 Section: utils
 Priority: optional
-Installed-Size: 112
+Installed-Size: 152
 Architecture: all
 Depends: python3, python3-gi, gir1.2-gtk-3.0, gir1.2-wnck-3.0, python3-xlib, python3-psutil, python3-cairo
 Maintainer: Lautaro Subeldia <LautaroSantiago@users.noreply.github.com>
